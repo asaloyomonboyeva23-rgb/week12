@@ -1,60 +1,90 @@
 import requests
-def fetch_advice(topic):
-    url = f"https://api.adviceslip.com/advice/search/{topic}"
+
+def fetch_book_data(topic):
+    url = "https://openlibrary.org/search.json"
+    params = {
+        "q": topic, 
+        "limit": 100, 
+    }
+    
     try:
-        response = requests.get(url)
+        response = requests.get(url, params=params)
         if response.status_code == 200:
-            data = response.json()
-            return data.get('slips', [])
-        else:
-            return []
-    except Exception as e:
-        print("Something went wrong:", e)
+            return response.json()
+        return None
+    except:
+        print("Network Error: Could not reach the library.")
+        return None
+
+def process_and_filter(data, max_editions):
+    if not data or 'docs' not in data:
         return []
-def process_advice(slips, min_length):
-    filtered = []
 
-    for slip in slips:
-        advice = slip['advice']
-        if len(advice) >= min_length:
-            filtered.append(advice)
-    filtered.sort(key=len, reverse=True)
-    return filtered
-
-
-def display_advice(advice_list, topic):
-    if not advice_list:
-        print("No advice found.")
-        return
-    save_to_txt(advice_list, topic)
-
-    print("\n--- Advice Results ---")
-    for i, advice in enumerate(advice_list, start=1):
-        print(f"{i}. {advice}")
-
-
-def save_to_txt(advice_list, topic):
-    filename = f"{topic}_advice.txt"
-    with open(filename, "w") as file:
-        for advice in advice_list:
-            file.write(advice + "\n")
-    print(f"Saved to {filename}")
-   # save_to_txt(advice_list, topic)
-
-
-#def main():
-print("=== Advice Finder App ===")
-
-topic = input("Enter a topic: ").strip()
-if not topic:
-    print("Topic cannot be empty.")
+    filtered_book_list = []
+    for doc in data['docs']:
+        edition_count = doc.get('edition_count', 0)
         
+        if edition_count <= max_editions:
+            filtered_book_list.append({
+                'title': doc.get('title', 'Untitled'),
+                'author': doc.get('author_name', ['Unknown'])[0],
+                'year': doc.get('first_publish_year', 'N/A'),
+                'edition_count': edition_count
+            })
+    return filtered_book_list
+
+def calculate_statistics(results):
+    if not results:
+        return None
+    count = len(results)
+    total_editions = sum(book['edition_count'] for book in results)
+    average = total_editions / count
+    max_val = max(book['edition_count'] for book in results)
+    
+    return {
+        "total": count,
+        "avg": round(average, 2),
+        "max": max_val
+    }
+
+def save_to_file(results, topic,statistics):
+    filename = f"{topic}_limited_report.txt"
+    with open(f"{topic}_limited_report.txt", "w") as file:
+        file.write(f"Books for '{topic}' with low edition counts\n")
+        file.write(f"Total Books: { statistics['total']}\n")
+        file.write(f"Average Editions: { statistics['avg']}\n")
+        file.write(f"Highest Edition Count: { statistics['max']}\n")
+        file.write("-" * 50 + "\n")
+        for book in results:
+            file.write(f"[{book['edition_count']} eds] {book['title']} - {book['author']}\n")
+    print(f"\nReport saved to {filename}")
+print("--- Professional Book edition_count Filter ---")
+user_topic = input("Enter the topic (e.g., Python, Rome, Science, love ): ").strip()
+
 try:
-     min_length = int(input("Minimum advice length: "))
+    max_edition = int(input("Enter the maximum Edition Count allowed: higher is better:  "))
+    
+    print("\nConnecting to library...")
+    raw_results = fetch_book_data(user_topic)
+    final_books = process_and_filter(raw_results, max_edition)
+    
+    if not final_books:
+        print(f"No books found for '{user_topic}' with {max_edition} or fewer editions.")
+    else:
+        print(f"\nResults for {user_topic} (Filtered by max {max_edition} editions):")
+        print(f"{'EDS':<5} | {'YEAR':<6} | {'TITLE'}")
+        print("-" * 50)
+        for book in final_books:
+            print(f"{book['edition_count']:<5} | {book['year']:<6} | {book['title']}")
+        statistics = calculate_statistics(final_books)
+        
+        print(f"\n--- Analysis Summary for {user_topic} ---")
+        print(f"Items Found: { statistics['total']}")
+        print(f"Average Editions: { statistics['avg']}")
+        print(f"Max Editions Found: { statistics['max']}")
+        print("-" * 40)
+        
+        save_to_file(final_books, user_topic,statistics)
+
 except ValueError:
-        print("Invalid number.")
-
-slips = fetch_advice(topic)
-advice_list = process_advice(slips, min_length)
-display_advice(advice_list,topic)
-
+    print("Error: Please enter a whole number for the edition_count.")
